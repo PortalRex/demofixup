@@ -5,7 +5,7 @@ fn err(comptime fmt: []const u8, args: anytype) u8 {
     return 1;
 }
 
-fn countDirFiles(dir: std.fs.IterableDir, ally: std.mem.Allocator) !u32 {
+fn countDirFiles(dir: std.fs.Dir, ally: std.mem.Allocator) !u32 {
     var walker = try dir.walk(ally);
     defer walker.deinit();
 
@@ -86,7 +86,7 @@ pub fn main() u8 {
             std.io.getStdOut().writer().print("successfully wrote {s}!\n", .{out_name.?}) catch {};
         },
         .directory => {
-            var in_dir = std.fs.cwd().openIterableDir(in_name.?, .{}) catch |e| return err("failed to open dir {s}: {}", .{ in_name.?, e });
+            var in_dir = std.fs.cwd().openDir(in_name.?, .{ .iterate = true }) catch |e| return err("failed to open dir {s}: {}", .{ in_name.?, e });
             defer in_dir.close();
 
             var out_dir = std.fs.cwd().makeOpenPath(out_name.?, .{}) catch |e| return err("failed to open dir {s}: {}", .{ out_name.?, e });
@@ -115,7 +115,7 @@ pub fn main() u8 {
 }
 
 fn fixupDir(
-    in_dir: std.fs.IterableDir,
+    in_dir: std.fs.Dir,
     out_dir: std.fs.Dir,
     failed: *std.ArrayList([]const u8),
     main_arena: std.mem.Allocator,
@@ -141,7 +141,7 @@ fn fixupDir(
             out_dir.makePath(dirname) catch |e| return err("failed to make out dir {s}: {}", .{ dirname, e });
         }
 
-        fixupFile(dem_arena.allocator(), root_prog_node, in_dir.dir, out_dir, ent.path, ent.path) catch |e| {
+        fixupFile(dem_arena.allocator(), root_prog_node, in_dir, out_dir, ent.path, ent.path) catch |e| {
             const str = std.fmt.allocPrint(main_arena, "{s}: {}", .{ ent.path, e }) catch return err("out of memory", .{});
             failed.append(str) catch return err("out of memory", .{});
         };
@@ -164,7 +164,7 @@ fn fixupFile(
         try out_dir.makePath(dirname);
     }
 
-    var in_data = try in_dir.readFileAlloc(dem_arena, in_name, 100_000_000);
+    const in_data = try in_dir.readFileAlloc(dem_arena, in_name, 100_000_000);
 
     var out_file = try out_dir.atomicFile(out_name, .{});
     defer out_file.deinit();
@@ -194,26 +194,26 @@ fn fixupDemo(in_data: []const u8, out_file: *std.fs.File, ally: std.mem.Allocato
         switch (kind) {
             1, 2 => { // signon, packet
                 try clone(in_rd, out_wr, 76 * 2 + 8);
-                const size = try in_rd.readIntLittle(u32);
-                try out_wr.writeIntLittle(u32, size);
+                const size = try in_rd.readInt(u32, .little);
+                try out_wr.writeInt(u32, size, .little);
                 try clone(in_rd, out_wr, size);
             },
             3 => {}, // synctick
             4 => { // consolecmd
-                const size = try in_rd.readIntLittle(u32);
-                try out_wr.writeIntLittle(u32, size);
+                const size = try in_rd.readInt(u32, .little);
+                try out_wr.writeInt(u32, size, .little);
                 try clone(in_rd, out_wr, size);
             },
             5 => { // usercmd
                 try clone(in_rd, out_wr, 4); // cmd
-                const size = try in_rd.readIntLittle(u32);
-                try out_wr.writeIntLittle(u32, size);
+                const size = try in_rd.readInt(u32, .little);
+                try out_wr.writeInt(u32, size, .little);
                 try clone(in_rd, out_wr, size);
             },
             6 => { // datatables
                 // oh boy 3am!!!
-                const size = try in_rd.readIntLittle(u32);
-                try out_wr.writeIntLittle(u32, size);
+                const size = try in_rd.readInt(u32, .little);
+                try out_wr.writeInt(u32, size, .little);
                 var count_rd = std.io.countingReader(in_rd);
                 var count_wr = std.io.countingWriter(out_wr);
                 try doDataTableStuff(count_rd.reader(), count_wr.writer(), ally);
@@ -228,13 +228,13 @@ fn fixupDemo(in_data: []const u8, out_file: *std.fs.File, ally: std.mem.Allocato
             },
             8 => { // customdata
                 try clone(in_rd, out_wr, 4); // type
-                const size = try in_rd.readIntLittle(u32);
-                try out_wr.writeIntLittle(u32, size);
+                const size = try in_rd.readInt(u32, .little);
+                try out_wr.writeInt(u32, size, .little);
                 try clone(in_rd, out_wr, size);
             },
             9 => { // stringtables
-                const size = try in_rd.readIntLittle(u32);
-                try out_wr.writeIntLittle(u32, size);
+                const size = try in_rd.readInt(u32, .little);
+                try out_wr.writeInt(u32, size, .little);
                 try clone(in_rd, out_wr, size);
             },
             else => return error.BadDemo,
@@ -273,8 +273,8 @@ fn cloneBits(br: anytype, bw: anytype, n: usize) !void {
 }
 
 fn doDataTableStuff(in_rd: anytype, out_wr: anytype, ally: std.mem.Allocator) !void {
-    var br_l = std.io.bitReader(.Little, in_rd);
-    var bw_l = std.io.bitWriter(.Little, out_wr);
+    var br_l = std.io.bitReader(.little, in_rd);
+    var bw_l = std.io.bitWriter(.little, out_wr);
     const br = &br_l;
     const bw = &bw_l;
 
