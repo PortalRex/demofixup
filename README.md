@@ -25,7 +25,9 @@ describing all entity classes and their associated networked properties. After t
 this section triggers an error because it includes an entity - `point_survey` - which the client is
 unaware of.
 
-This entity was never actually used (it was an old playtesting feature). Thus, we can fix this by
+The original fix was based on the assumption that this entity was never used:
+
+~~This entity was never actually used (it was an old playtesting feature). Thus, we can fix this by
 simply removing the record of this entity from the datatables. There are two things that need
 removing: the serverclass and the sendtable. The sendtable is easy - just omit its entry from the
 list. The serverclass is harder, because every class is associated with an ID, and we want these to
@@ -33,4 +35,17 @@ be unmodified for other entity types. Moreover, the IDs must be in the range `0`
 is the number of server classes. So, what we can do to solve this is replace the serverclass entry
 for this with a duplicate of any other. We'll never use this entry, but that's not important: what
 matters is that the game accepts it and plays the demo. Here, we replace `CPointSurvey` and
-`DT_PointSurvey` with `CPointCamera` and `DT_PointCamera`.
+`DT_PointSurvey` with `CPointCamera` and `DT_PointCamera`.~~
+
+However, several official maps do contain `point_survey` entities. The
+replacement must therefore have the same flattened network layout because the entity packet data
+still has to be decoded.
+
+`DT_AR2Explosion` has the same wire layout as `DT_PointSurvey`: both flatten to the 38 properties
+from their base entity followed by one string property. We therefore replace `CPointSurvey` and
+`DT_PointSurvey` with `AR2Explosion` and `DT_AR2Explosion`. The property names differ, but demo
+packet entities encode property indexes and values, so the matching layout is what matters.
+
+Older demofixup releases used `CPointCamera`, whose network layout is incompatible. Running a demo
+through the current version again detects that old duplicate class entry and upgrades it to the
+wire-compatible replacement.
