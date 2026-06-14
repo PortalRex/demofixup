@@ -277,6 +277,7 @@ fn doDataTableStuff(in_rd: anytype, out_wr: anytype, ally: std.mem.Allocator) !v
     var bw_l = std.io.bitWriter(.little, out_wr);
     const br = &br_l;
     const bw = &bw_l;
+    var removed_point_survey = false;
 
     // write out sendtables but remove bad one
     while (try readBool(br)) {
@@ -285,6 +286,7 @@ fn doDataTableStuff(in_rd: anytype, out_wr: anytype, ally: std.mem.Allocator) !v
         const num_props = try br.readBitsNoEof(u10, 10);
 
         const skip = std.mem.eql(u8, table_name, "DT_PointSurvey\x00");
+        removed_point_survey = removed_point_survey or skip;
 
         if (!skip) {
             try bw.writeBits(@as(u1, 1), 1); // presence bit
@@ -329,20 +331,29 @@ fn doDataTableStuff(in_rd: anytype, out_wr: anytype, ally: std.mem.Allocator) !v
 
     try bw.writeBits(@as(u1, 0), 1);
 
-    // write out the classes but replace the bad one with a dummy entry
+    // Replace point_survey with a class that has the same flattened wire layout.
     const num_classes = try br.readBitsNoEof(u16, 16);
     try bw.writeBits(num_classes, 16);
+    var point_camera_count: u2 = 0;
     for (0..num_classes) |_| {
         const class_id = try br.readBitsNoEof(u16, 16);
         const class_name = try readStr(br, ally);
         const dt_name = try readStr(br, ally);
-        if (std.mem.eql(u8, dt_name, "DT_PointSurvey\x00")) {
-            if (!std.mem.eql(u8, class_name, "CPointSurvey\x00")) {
+        const is_point_camera = std.mem.eql(u8, class_name, "CPointCamera\x00") and
+            std.mem.eql(u8, dt_name, "DT_PointCamera\x00");
+        if (is_point_camera and point_camera_count < std.math.maxInt(u2)) {
+            point_camera_count += 1;
+        }
+
+        const is_point_survey = std.mem.eql(u8, dt_name, "DT_PointSurvey\x00");
+        const is_legacy_fixup = !removed_point_survey and is_point_camera and point_camera_count == 2;
+        if (is_point_survey or is_legacy_fixup) {
+            if (is_point_survey and !std.mem.eql(u8, class_name, "CPointSurvey\x00")) {
                 return error.BadDemo;
             }
             try bw.writeBits(class_id, 16);
-            try bw.writer().writeAll("CPointCamera\x00");
-            try bw.writer().writeAll("DT_PointCamera\x00");
+            try bw.writer().writeAll("AR2Explosion\x00");
+            try bw.writer().writeAll("DT_AR2Explosion\x00");
         } else {
             try bw.writeBits(class_id, 16);
             try bw.writer().writeAll(class_name);
